@@ -1,5 +1,5 @@
 /**
- * Chat Attention — scroll to newest for your own posts; for others, when unfocused + ping.
+ * Chat Attention — always force-scroll chat to newest; ping when unfocused.
  */
 
 const MODULE_ID = "chat-attention";
@@ -95,7 +95,6 @@ function chatLogElements() {
 
   for (const root of roots) {
     if (!root?.querySelectorAll) continue;
-    // v12 #chat-log; v13+ often uses classes / [data-application-part]
     const found = root.querySelectorAll(
       "#chat-log, .chat-log, .chat-scroll, [data-application-part='log'], ol.chat-log"
     );
@@ -122,25 +121,12 @@ function forceScrollToNewest() {
   }
 }
 
-/**
- * @param {{ own?: boolean }} [opts]
- * own: always scroll (your posts). otherwise only while Foundry is unfocused.
- */
-function scheduleScrollToNewest({ own = false } = {}) {
-  if (own) {
-    if (!game.settings.get(MODULE_ID, "scrollOwnMessages")) return;
-  } else if (!game.settings.get(MODULE_ID, "scrollWhenUnfocused")) {
-    return;
-  } else if (isGameFocused()) {
-    return;
-  }
+/** Always jump to newest after Foundry posts the card into the DOM. */
+function scheduleScrollToNewest() {
+  if (!game.settings.get(MODULE_ID, "alwaysScroll")) return;
 
-  const run = () => {
-    if (!own && isGameFocused()) return;
-    forceScrollToNewest();
-  };
+  const run = () => forceScrollToNewest();
 
-  // createChatMessage fires before the card is in the log — defer past postOne/render.
   requestAnimationFrame(() => {
     run();
     setTimeout(run, 0);
@@ -151,18 +137,9 @@ function scheduleScrollToNewest({ own = false } = {}) {
 }
 
 function registerSettings() {
-  game.settings.register(MODULE_ID, "scrollOwnMessages", {
-    name: "Scroll to my own messages",
-    hint: "When you send a chat message, always jump to the bottom — even if you had scrolled up.",
-    scope: "client",
-    config: true,
-    type: Boolean,
-    default: true,
-  });
-
-  game.settings.register(MODULE_ID, "scrollWhenUnfocused", {
-    name: "Scroll to newest when unfocused",
-    hint: "When Foundry is not focused and someone else posts, jump chat to the bottom.",
+  game.settings.register(MODULE_ID, "alwaysScroll", {
+    name: "Always scroll to newest",
+    hint: "Jump chat to the bottom on every new message — for text RP where everyone should see the latest line.",
     scope: "client",
     config: true,
     type: Boolean,
@@ -199,16 +176,12 @@ function registerSettings() {
 }
 
 function onChatMessage(message, _options, userId) {
-  const own = isOwnMessage(message, userId);
-
-  if (own) {
-    scheduleScrollToNewest({ own: true });
-  } else if (!isGameFocused()) {
-    scheduleScrollToNewest({ own: false });
-  }
+  scheduleScrollToNewest();
 
   if (isGameFocused()) return;
   if (!game.settings.get(MODULE_ID, "notifyWhenUnfocused")) return;
+
+  const own = isOwnMessage(message, userId);
   if (own && !game.settings.get(MODULE_ID, "notifyOwnMessages")) return;
 
   const volume = Number(game.settings.get(MODULE_ID, "notifyVolume") ?? 0.35);
@@ -216,10 +189,8 @@ function onChatMessage(message, _options, userId) {
   void playAttentionPing(volume);
 }
 
-function onMessageRendered(message) {
-  const own = isOwnMessage(message);
-  if (own) scheduleScrollToNewest({ own: true });
-  else scheduleScrollToNewest({ own: false });
+function onMessageRendered() {
+  scheduleScrollToNewest();
 }
 
 Hooks.once("init", () => {
@@ -234,7 +205,7 @@ Hooks.once("ready", () => {
   };
   window.addEventListener("pointerdown", unlock, { once: true, capture: true });
   window.addEventListener("keydown", unlock, { once: true, capture: true });
-  console.log(`${MODULE_ID} | ready — own-message scroll + unfocused scroll/ping`);
+  console.log(`${MODULE_ID} | ready — always scroll + unfocused ping`);
 });
 
 Hooks.on("createChatMessage", onChatMessage);

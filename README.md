@@ -1,13 +1,13 @@
 # Chat Attention
 
-Standalone Foundry VTT module:
+Standalone Foundry VTT module for text RP:
 
-1. Always scrolls chat to the bottom when **you** send a message
-2. When Foundry is **unfocused**, scrolls to new messages from others and plays a soft ping
+1. **Always** scrolls chat to the newest message (yours or anyone else’s, focused or not)
+2. Plays a soft ping when a message arrives while Foundry is **unfocused**
 
 Compatible with Foundry **12–14**.
 
-## Install (friend / table)
+## Install
 
 In Foundry: **Add-on Modules → Install Module → Manifest URL**
 
@@ -21,8 +21,7 @@ Enable **Chat Attention** for the world and reload.
 
 | Setting | Default | Meaning |
 | --- | --- | --- |
-| Scroll to my own messages | on | Always jump to bottom when you post |
-| Scroll to newest when unfocused | on | Jump to others’ posts when Foundry isn’t focused |
+| Always scroll to newest | on | Jump to bottom on every new message |
 | Ping when unfocused | on | Soft sound when a message arrives and Foundry isn’t focused |
 | Ping for my own messages | off | Also ping for messages you send |
 | Ping volume | 0.35 | 0–1 |

@@ -1,0 +1,29 @@
+{
+  "id": "chat-attention",
+  "title": "Chat Attention",
+  "description": "When Foundry is unfocused, scrolls chat to new messages and plays a soft ping. Leaves normal scroll alone while you are focused.",
+  "version": "0.1.0",
+  "compatibility": {
+    "minimum": "12",
+    "verified": "14",
+    "maximum": "14"
+  },
+  "authors": [
+    {
+      "name": "ChronoTheChangeling",
+      "url": "https://github.com/ChronoTheChangeling"
+    }
+  ],
+  "url": "https://github.com/ChronoTheChangeling/chat-attention",
+  "readme": "https://github.com/ChronoTheChangeling/chat-attention#readme",
+  "bugs": "https://github.com/ChronoTheChangeling/chat-attention/issues",
+  "manifest": "https://github.com/ChronoTheChangeling/chat-attention/releases/latest/download/module.json",
+  "download": "https://github.com/ChronoTheChangeling/chat-attention/releases/latest/download/module.zip",
+  "esmodules": ["scripts/main.mjs"],
+  "flags": {
+    "hotReload": {
+      "extensions": ["mjs", "json"],
+      "paths": ["scripts"]
+    }
+  }
+}

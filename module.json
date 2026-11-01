@@ -1,8 +1,8 @@
 {
   "id": "chat-attention",
   "title": "Chat Attention",
-  "description": "When Foundry is unfocused, scrolls chat to new messages and plays a soft ping. Leaves normal scroll alone while you are focused.",
-  "version": "0.1.1",
+  "description": "Always scrolls chat to your own messages. When Foundry is unfocused, also scrolls to others' messages and plays a soft ping.",
+  "version": "0.1.2",
   "compatibility": {
     "minimum": "12",
     "verified": "14",

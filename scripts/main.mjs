@@ -1,5 +1,5 @@
 /**
- * Chat Attention — when Foundry is unfocused: scroll to newest + soft ping.
+ * Chat Attention — scroll to newest for your own posts; for others, when unfocused + ping.
  */
 
 const MODULE_ID = "chat-attention";
@@ -27,6 +27,15 @@ function trackFocus() {
 function isGameFocused() {
   if (document.hidden) return false;
   return windowFocused;
+}
+
+function isOwnMessage(message, userId) {
+  const me = game.user?.id;
+  if (!me) return false;
+  if (userId && userId === me) return true;
+  if (message?.user?.id === me) return true;
+  if (message?.author?.id === me) return true;
+  return false;
 }
 
 /** Soft two-tone ping via Web Audio (no asset file required). */
@@ -93,7 +102,6 @@ function chatLogElements() {
     for (const el of found) els.push(el);
   }
 
-  // Last resort: anything currently in the document
   if (!els.length) {
     document
       .querySelectorAll("#chat-log, .chat-log, .chat-scroll, [data-application-part='log']")
@@ -114,13 +122,21 @@ function forceScrollToNewest() {
   }
 }
 
-/** Scroll after Foundry has posted the new card into the DOM. */
-function scheduleScrollToNewest() {
-  if (!game.settings.get(MODULE_ID, "scrollWhenUnfocused")) return;
-  if (isGameFocused()) return;
+/**
+ * @param {{ own?: boolean }} [opts]
+ * own: always scroll (your posts). otherwise only while Foundry is unfocused.
+ */
+function scheduleScrollToNewest({ own = false } = {}) {
+  if (own) {
+    if (!game.settings.get(MODULE_ID, "scrollOwnMessages")) return;
+  } else if (!game.settings.get(MODULE_ID, "scrollWhenUnfocused")) {
+    return;
+  } else if (isGameFocused()) {
+    return;
+  }
 
   const run = () => {
-    if (isGameFocused()) return;
+    if (!own && isGameFocused()) return;
     forceScrollToNewest();
   };
 
@@ -135,9 +151,18 @@ function scheduleScrollToNewest() {
 }
 
 function registerSettings() {
+  game.settings.register(MODULE_ID, "scrollOwnMessages", {
+    name: "Scroll to my own messages",
+    hint: "When you send a chat message, always jump to the bottom — even if you had scrolled up.",
+    scope: "client",
+    config: true,
+    type: Boolean,
+    default: true,
+  });
+
   game.settings.register(MODULE_ID, "scrollWhenUnfocused", {
     name: "Scroll to newest when unfocused",
-    hint: "When Foundry is not focused and a new message arrives, jump chat to the bottom. While you are focused, normal Foundry scroll behavior is left alone.",
+    hint: "When Foundry is not focused and someone else posts, jump chat to the bottom.",
     scope: "client",
     config: true,
     type: Boolean,
@@ -174,23 +199,27 @@ function registerSettings() {
 }
 
 function onChatMessage(message, _options, userId) {
+  const own = isOwnMessage(message, userId);
+
+  if (own) {
+    scheduleScrollToNewest({ own: true });
+  } else if (!isGameFocused()) {
+    scheduleScrollToNewest({ own: false });
+  }
+
   if (isGameFocused()) return;
-
-  scheduleScrollToNewest();
-
   if (!game.settings.get(MODULE_ID, "notifyWhenUnfocused")) return;
-
-  const fromSelf = userId === game.user?.id || message?.user?.id === game.user?.id;
-  if (fromSelf && !game.settings.get(MODULE_ID, "notifyOwnMessages")) return;
+  if (own && !game.settings.get(MODULE_ID, "notifyOwnMessages")) return;
 
   const volume = Number(game.settings.get(MODULE_ID, "notifyVolume") ?? 0.35);
   if (volume <= 0) return;
   void playAttentionPing(volume);
 }
 
-/** After a message card is rendered, force scroll if still unfocused. */
-function onMessageRendered() {
-  scheduleScrollToNewest();
+function onMessageRendered(message) {
+  const own = isOwnMessage(message);
+  if (own) scheduleScrollToNewest({ own: true });
+  else scheduleScrollToNewest({ own: false });
 }
 
 Hooks.once("init", () => {
@@ -199,17 +228,15 @@ Hooks.once("init", () => {
 
 Hooks.once("ready", () => {
   trackFocus();
-  // Unlock audio on first click/key so later unfocused pings are allowed.
   const unlock = () => {
     const ctx = getAudioContext();
     if (ctx?.state === "suspended") void ctx.resume();
   };
   window.addEventListener("pointerdown", unlock, { once: true, capture: true });
   window.addEventListener("keydown", unlock, { once: true, capture: true });
-  console.log(`${MODULE_ID} | ready — unfocused scroll + ping`);
+  console.log(`${MODULE_ID} | ready — own-message scroll + unfocused scroll/ping`);
 });
 
 Hooks.on("createChatMessage", onChatMessage);
 Hooks.on("renderChatMessageHTML", onMessageRendered);
-// Foundry v12
 Hooks.on("renderChatMessage", onMessageRendered);

@@ -1,11 +1,9 @@
 # Chat Attention
 
-Standalone Foundry VTT module. When Foundry is **unfocused** and a new chat message arrives:
+Standalone Foundry VTT module:
 
-1. Scrolls the chat log to the newest message
-2. Plays a soft ping
-
-While you are focused on Foundry, normal chat scroll behavior is unchanged.
+1. Always scrolls chat to the bottom when **you** send a message
+2. When Foundry is **unfocused**, scrolls to new messages from others and plays a soft ping
 
 Compatible with Foundry **12–14**.
 
@@ -23,7 +21,8 @@ Enable **Chat Attention** for the world and reload.
 
 | Setting | Default | Meaning |
 | --- | --- | --- |
-| Scroll to newest when unfocused | on | Jump chat to bottom only when Foundry isn’t focused |
+| Scroll to my own messages | on | Always jump to bottom when you post |
+| Scroll to newest when unfocused | on | Jump to others’ posts when Foundry isn’t focused |
 | Ping when unfocused | on | Soft sound when a message arrives and Foundry isn’t focused |
 | Ping for my own messages | off | Also ping for messages you send |
 | Ping volume | 0.35 | 0–1 |

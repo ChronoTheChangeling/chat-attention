@@ -4,12 +4,53 @@
 
 const MODULE_ID = "chat-attention";
 
-/** Soft two-tone ping via Web Audio (no asset file required). */
-function playAttentionPing(volume = 0.35) {
-  const AudioCtx = window.AudioContext || window.webkitAudioContext;
-  if (!AudioCtx) return;
+/** Tracked window focus — more reliable than hasFocus() alone (Electron + browsers). */
+let windowFocused = true;
 
-  const ctx = new AudioCtx();
+function trackFocus() {
+  const sync = () => {
+    windowFocused = !document.hidden && document.hasFocus();
+  };
+  window.addEventListener("focus", () => {
+    windowFocused = true;
+  });
+  window.addEventListener("blur", () => {
+    windowFocused = false;
+  });
+  document.addEventListener("visibilitychange", () => {
+    if (document.hidden) windowFocused = false;
+    else sync();
+  });
+  sync();
+}
+
+function isGameFocused() {
+  if (document.hidden) return false;
+  return windowFocused;
+}
+
+/** Soft two-tone ping via Web Audio (no asset file required). */
+let sharedAudioCtx = null;
+
+function getAudioContext() {
+  const AudioCtx = window.AudioContext || window.webkitAudioContext;
+  if (!AudioCtx) return null;
+  if (!sharedAudioCtx || sharedAudioCtx.state === "closed") {
+    sharedAudioCtx = new AudioCtx();
+  }
+  return sharedAudioCtx;
+}
+
+async function playAttentionPing(volume = 0.35) {
+  const ctx = getAudioContext();
+  if (!ctx) return;
+
+  try {
+    if (ctx.state === "suspended") await ctx.resume();
+  } catch {
+    return;
+  }
+
   const now = ctx.currentTime;
   const master = ctx.createGain();
   master.gain.setValueAtTime(Math.max(0, Math.min(1, volume)), now);
@@ -33,38 +74,64 @@ function playAttentionPing(volume = 0.35) {
     osc.start(now + tone.start);
     osc.stop(now + tone.start + tone.dur + 0.02);
   }
-
-  const closeAt = (tones.at(-1).start + tones.at(-1).dur + 0.05) * 1000;
-  setTimeout(() => {
-    void ctx.close().catch(() => {});
-  }, closeAt + 50);
 }
 
-function isGameFocused() {
-  if (document.hidden) return false;
-  try {
-    return document.hasFocus();
-  } catch {
-    return !document.hidden;
+function chatLogElements() {
+  const els = [];
+  const chat = ui.chat;
+  const roots = [];
+
+  if (chat?.element) roots.push(chat.element?.[0] ?? chat.element);
+  if (chat?.popout?.element) roots.push(chat.popout.element?.[0] ?? chat.popout.element);
+
+  for (const root of roots) {
+    if (!root?.querySelectorAll) continue;
+    // v12 #chat-log; v13+ often uses classes / [data-application-part]
+    const found = root.querySelectorAll(
+      "#chat-log, .chat-log, .chat-scroll, [data-application-part='log'], ol.chat-log"
+    );
+    for (const el of found) els.push(el);
   }
+
+  // Last resort: anything currently in the document
+  if (!els.length) {
+    document
+      .querySelectorAll("#chat-log, .chat-log, .chat-scroll, [data-application-part='log']")
+      .forEach((el) => els.push(el));
+  }
+
+  return els;
 }
 
 function forceScrollToNewest() {
   const chat = ui.chat;
-  if (!chat) return;
-
-  // Foundry 12+ ChatLog API
-  if (typeof chat.scrollBottom === "function") {
-    void chat.scrollBottom({ popout: true, waitImages: true });
-    return;
+  if (chat && typeof chat.scrollBottom === "function") {
+    void chat.scrollBottom({ popout: true, waitImages: false });
   }
 
-  // Fallback: raw log element
-  const root = chat.element?.[0] ?? chat.element;
-  const log =
-    root?.querySelector?.("#chat-log") ??
-    document.querySelector("#chat-log");
-  if (log) log.scrollTop = log.scrollHeight;
+  for (const log of chatLogElements()) {
+    log.scrollTop = log.scrollHeight;
+  }
+}
+
+/** Scroll after Foundry has posted the new card into the DOM. */
+function scheduleScrollToNewest() {
+  if (!game.settings.get(MODULE_ID, "scrollWhenUnfocused")) return;
+  if (isGameFocused()) return;
+
+  const run = () => {
+    if (isGameFocused()) return;
+    forceScrollToNewest();
+  };
+
+  // createChatMessage fires before the card is in the log — defer past postOne/render.
+  requestAnimationFrame(() => {
+    run();
+    setTimeout(run, 0);
+    setTimeout(run, 50);
+    setTimeout(run, 150);
+    setTimeout(run, 400);
+  });
 }
 
 function registerSettings() {
@@ -79,7 +146,7 @@ function registerSettings() {
 
   game.settings.register(MODULE_ID, "notifyWhenUnfocused", {
     name: "Ping when unfocused",
-    hint: "Play a soft sound when a new chat message arrives and Foundry is not the focused window/tab.",
+    hint: "Play a soft sound when a new chat message arrives and Foundry is not the focused window/tab. Each player only hears it on their own client.",
     scope: "client",
     config: true,
     type: Boolean,
@@ -109,13 +176,7 @@ function registerSettings() {
 function onChatMessage(message, _options, userId) {
   if (isGameFocused()) return;
 
-  if (game.settings.get(MODULE_ID, "scrollWhenUnfocused")) {
-    requestAnimationFrame(() => {
-      forceScrollToNewest();
-      // Second pass catches late-rendered images / dice cards.
-      setTimeout(forceScrollToNewest, 50);
-    });
-  }
+  scheduleScrollToNewest();
 
   if (!game.settings.get(MODULE_ID, "notifyWhenUnfocused")) return;
 
@@ -124,7 +185,12 @@ function onChatMessage(message, _options, userId) {
 
   const volume = Number(game.settings.get(MODULE_ID, "notifyVolume") ?? 0.35);
   if (volume <= 0) return;
-  playAttentionPing(volume);
+  void playAttentionPing(volume);
+}
+
+/** After a message card is rendered, force scroll if still unfocused. */
+function onMessageRendered() {
+  scheduleScrollToNewest();
 }
 
 Hooks.once("init", () => {
@@ -132,8 +198,18 @@ Hooks.once("init", () => {
 });
 
 Hooks.once("ready", () => {
+  trackFocus();
+  // Unlock audio on first click/key so later unfocused pings are allowed.
+  const unlock = () => {
+    const ctx = getAudioContext();
+    if (ctx?.state === "suspended") void ctx.resume();
+  };
+  window.addEventListener("pointerdown", unlock, { once: true, capture: true });
+  window.addEventListener("keydown", unlock, { once: true, capture: true });
   console.log(`${MODULE_ID} | ready — unfocused scroll + ping`);
 });
 
-// Fires on every client when a ChatMessage document is created.
 Hooks.on("createChatMessage", onChatMessage);
+Hooks.on("renderChatMessageHTML", onMessageRendered);
+// Foundry v12
+Hooks.on("renderChatMessage", onMessageRendered);

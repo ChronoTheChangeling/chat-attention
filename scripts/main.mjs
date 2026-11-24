@@ -1,12 +1,15 @@
 /**
- * Chat Attention — force-scroll + ping only while Foundry is unfocused.
- * While focused, leave chat scroll alone so reading history isn't yanked.
+ * Chat Attention — always yank chat to brand-new messages; never on history loads.
+ * Loud ping when Foundry is unfocused.
  */
 
 const MODULE_ID = "chat-attention";
 
 /** Tracked window focus — more reliable than hasFocus() alone (Electron + browsers). */
 let windowFocused = true;
+
+/** Message ids we already scrolled for (avoids repeat yanks on re-render). */
+const scrolledMessageIds = new Set();
 
 function trackFocus() {
   const sync = () => {
@@ -176,16 +179,20 @@ function forceScrollToNewest(chat = ui.chat) {
   }
 }
 
-/** Only jump to newest while Foundry is unfocused. */
-function scheduleScrollToNewest() {
-  if (!game.settings.get(MODULE_ID, "scrollWhenUnfocused")) return;
-  if (isGameFocused()) return;
+/** Yank to bottom for a newly created message only. */
+function scheduleScrollForNewMessage(messageId) {
+  if (!game.settings.get(MODULE_ID, "alwaysScrollNew")) return;
+  if (messageId && scrolledMessageIds.has(messageId)) return;
+  if (messageId) {
+    scrolledMessageIds.add(messageId);
+    // Bound memory for long sessions
+    if (scrolledMessageIds.size > 200) {
+      const first = scrolledMessageIds.values().next().value;
+      scrolledMessageIds.delete(first);
+    }
+  }
 
-  const run = () => {
-    if (isGameFocused()) return;
-    forceScrollToNewest();
-  };
-
+  const run = () => forceScrollToNewest();
   run();
   requestAnimationFrame(() => {
     run();
@@ -197,8 +204,9 @@ function scheduleScrollToNewest() {
 }
 
 /**
- * Patch ChatLog#postOne so unfocused clients force scroll:true.
- * While focused, do not override Foundry's normal "stay put if scrolled up" behavior.
+ * Patch ChatLog#postOne for brand-new posts only.
+ * History batch loads use renderBatch / prepend — not this path — so scrolling
+ * up to read old messages will not yank you back down.
  */
 function patchChatLogPostOne() {
   const ChatLog = getChatLogClass();
@@ -207,13 +215,14 @@ function patchChatLogPostOne() {
   const original = ChatLog.prototype.postOne;
   async function patchedPostOne(message, options = {}) {
     const opts = { ...options };
-    const force =
-      game.settings.get(MODULE_ID, "scrollWhenUnfocused") && !isGameFocused();
-    if (force) opts.scroll = true;
+    const forceNew = game.settings.get(MODULE_ID, "alwaysScrollNew");
+    // Only force when appending a new message (default postOne path), not when
+    // prepending history via `before`.
+    if (forceNew && !opts.before) opts.scroll = true;
     const result = await original.call(this, message, opts);
-    if (force) {
+    if (forceNew && !opts.before) {
       forceScrollToNewest(this);
-      scheduleScrollToNewest();
+      scheduleScrollForNewMessage(message?.id);
     }
     return result;
   }
@@ -222,9 +231,9 @@ function patchChatLogPostOne() {
 }
 
 function registerSettings() {
-  game.settings.register(MODULE_ID, "scrollWhenUnfocused", {
-    name: "Scroll to newest when unfocused",
-    hint: "When Foundry is tabbed out / unfocused, jump chat to new messages. While you are focused and scrolled up, chat stays put.",
+  game.settings.register(MODULE_ID, "alwaysScrollNew", {
+    name: "Always scroll to new messages",
+    hint: "Jump chat to the bottom whenever a brand-new message arrives. Scrolling up through older history will not yank you down.",
     scope: "client",
     config: true,
     type: Boolean,
@@ -261,10 +270,10 @@ function registerSettings() {
 }
 
 function onChatMessage(message, _options, userId) {
+  // createChatMessage = brand new only (not history batch renders).
+  scheduleScrollForNewMessage(message?.id);
+
   if (isGameFocused()) return;
-
-  scheduleScrollToNewest();
-
   if (!game.settings.get(MODULE_ID, "notifyWhenUnfocused")) return;
 
   const own = isOwnMessage(message, userId);
@@ -273,11 +282,6 @@ function onChatMessage(message, _options, userId) {
   const volume = Number(game.settings.get(MODULE_ID, "notifyVolume") ?? 0.75);
   if (volume <= 0) return;
   void playAttentionPing(volume);
-}
-
-function onMessageRendered() {
-  // Only while unfocused — never yank a focused player reading history.
-  scheduleScrollToNewest();
 }
 
 Hooks.once("init", () => {
@@ -298,9 +302,9 @@ Hooks.once("ready", () => {
   };
   window.addEventListener("pointerdown", unlock, { once: true, capture: true });
   window.addEventListener("keydown", unlock, { once: true, capture: true });
-  console.log(`${MODULE_ID} | ready — unfocused scroll/ping only`);
+  console.log(`${MODULE_ID} | ready — yank on new messages only + unfocused ping`);
 });
 
+// Intentionally NOT hooked to renderChatMessage / renderChatMessageHTML:
+// those also fire when Foundry loads older messages while you scroll up.
 Hooks.on("createChatMessage", onChatMessage);
-Hooks.on("renderChatMessageHTML", onMessageRendered);
-Hooks.on("renderChatMessage", onMessageRendered);

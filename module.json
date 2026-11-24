@@ -1,8 +1,8 @@
 {
   "id": "chat-attention",
   "title": "Chat Attention",
-  "description": "While Foundry is unfocused: scroll chat to new messages and play a loud ping. While focused, leaves scroll alone so reading history isn't yanked.",
-  "version": "0.1.5",
+  "description": "Always scrolls chat to brand-new messages. Does not yank you when loading older history. Loud ping when Foundry is unfocused.",
+  "version": "0.1.6",
   "compatibility": {
     "minimum": "12",
     "verified": "14",

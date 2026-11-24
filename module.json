@@ -1,8 +1,8 @@
 {
   "id": "chat-attention",
   "title": "Chat Attention",
-  "description": "Always force-scrolls chat to the newest message (even while focused). Plays a loud ping when a message arrives while Foundry is unfocused.",
-  "version": "0.1.4",
+  "description": "While Foundry is unfocused: scroll chat to new messages and play a loud ping. While focused, leaves scroll alone so reading history isn't yanked.",
+  "version": "0.1.5",
   "compatibility": {
     "minimum": "12",
     "verified": "14",

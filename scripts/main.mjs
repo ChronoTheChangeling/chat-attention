@@ -1,5 +1,6 @@
 /**
- * Chat Attention — always force-scroll chat to newest; louder ping when unfocused.
+ * Chat Attention — force-scroll + ping only while Foundry is unfocused.
+ * While focused, leave chat scroll alone so reading history isn't yanked.
  */
 
 const MODULE_ID = "chat-attention";
@@ -62,11 +63,9 @@ async function playAttentionPing(volume = 0.75) {
 
   const now = ctx.currentTime;
   const master = ctx.createGain();
-  // Keep some headroom so stacked oscillators don't clip harshly.
   master.gain.setValueAtTime(Math.max(0, Math.min(1, volume)) * 0.9, now);
   master.connect(ctx.destination);
 
-  // Three rising beeps — short, bright, hard to miss.
   const tones = [
     { freq: 880, start: 0.0, dur: 0.11 },
     { freq: 1175, start: 0.14, dur: 0.11 },
@@ -175,35 +174,31 @@ function forceScrollToNewest(chat = ui.chat) {
       el.scrollIntoView({ block: "end", inline: "nearest", behavior: "instant" });
     }
   }
-
-  // Mark jump-to-bottom UI as satisfied when present.
-  for (const root of rootElementsForChat(chat)) {
-    root.querySelectorAll?.(".jump-to-bottom")?.forEach((btn) => {
-      btn.classList.add("hidden");
-      btn.style.display = "none";
-    });
-  }
 }
 
-/** Always jump to newest after Foundry posts the card into the DOM. */
+/** Only jump to newest while Foundry is unfocused. */
 function scheduleScrollToNewest() {
-  if (!game.settings.get(MODULE_ID, "alwaysScroll")) return;
+  if (!game.settings.get(MODULE_ID, "scrollWhenUnfocused")) return;
+  if (isGameFocused()) return;
 
-  const run = () => forceScrollToNewest();
+  const run = () => {
+    if (isGameFocused()) return;
+    forceScrollToNewest();
+  };
+
   run();
   requestAnimationFrame(() => {
     run();
     setTimeout(run, 0);
     setTimeout(run, 50);
     setTimeout(run, 150);
-    setTimeout(run, 300);
-    setTimeout(run, 600);
+    setTimeout(run, 400);
   });
 }
 
 /**
- * Patch ChatLog#postOne so Foundry itself is told to scroll (v14 scroll:true),
- * then force DOM scroll afterward. This beats the focused "scrolled up" path.
+ * Patch ChatLog#postOne so unfocused clients force scroll:true.
+ * While focused, do not override Foundry's normal "stay put if scrolled up" behavior.
  */
 function patchChatLogPostOne() {
   const ChatLog = getChatLogClass();
@@ -212,9 +207,11 @@ function patchChatLogPostOne() {
   const original = ChatLog.prototype.postOne;
   async function patchedPostOne(message, options = {}) {
     const opts = { ...options };
-    if (game.settings.get(MODULE_ID, "alwaysScroll")) opts.scroll = true;
+    const force =
+      game.settings.get(MODULE_ID, "scrollWhenUnfocused") && !isGameFocused();
+    if (force) opts.scroll = true;
     const result = await original.call(this, message, opts);
-    if (game.settings.get(MODULE_ID, "alwaysScroll")) {
+    if (force) {
       forceScrollToNewest(this);
       scheduleScrollToNewest();
     }
@@ -224,32 +221,10 @@ function patchChatLogPostOne() {
   ChatLog.prototype.postOne = patchedPostOne;
 }
 
-function watchChatMutations() {
-  const attach = (root) => {
-    if (!root || root.__chatAttentionObserved) return;
-    const log =
-      root.querySelector?.("#chat-log, .chat-log, [data-application-part='log'], ol.chat-log") ?? root;
-    if (!log) return;
-    const obs = new MutationObserver(() => {
-      if (!game.settings.get(MODULE_ID, "alwaysScroll")) return;
-      forceScrollToNewest();
-    });
-    obs.observe(log, { childList: true, subtree: true });
-    root.__chatAttentionObserved = true;
-  };
-
-  for (const root of rootElementsForChat(ui.chat)) attach(root);
-  Hooks.on("renderChatLog", (app, html) => {
-    const root = html?.[0] ?? html ?? app?.element?.[0] ?? app?.element;
-    attach(root);
-    if (game.settings.get(MODULE_ID, "alwaysScroll")) forceScrollToNewest(app);
-  });
-}
-
 function registerSettings() {
-  game.settings.register(MODULE_ID, "alwaysScroll", {
-    name: "Always scroll to newest",
-    hint: "Jump chat to the bottom on every new message — even while Foundry is focused and you had scrolled up.",
+  game.settings.register(MODULE_ID, "scrollWhenUnfocused", {
+    name: "Scroll to newest when unfocused",
+    hint: "When Foundry is tabbed out / unfocused, jump chat to new messages. While you are focused and scrolled up, chat stays put.",
     scope: "client",
     config: true,
     type: Boolean,
@@ -286,9 +261,10 @@ function registerSettings() {
 }
 
 function onChatMessage(message, _options, userId) {
+  if (isGameFocused()) return;
+
   scheduleScrollToNewest();
 
-  if (isGameFocused()) return;
   if (!game.settings.get(MODULE_ID, "notifyWhenUnfocused")) return;
 
   const own = isOwnMessage(message, userId);
@@ -300,6 +276,7 @@ function onChatMessage(message, _options, userId) {
 }
 
 function onMessageRendered() {
+  // Only while unfocused — never yank a focused player reading history.
   scheduleScrollToNewest();
 }
 
@@ -314,7 +291,6 @@ Hooks.once("setup", () => {
 Hooks.once("ready", () => {
   trackFocus();
   patchChatLogPostOne();
-  watchChatMutations();
 
   const unlock = () => {
     const ctx = getAudioContext();
@@ -322,7 +298,7 @@ Hooks.once("ready", () => {
   };
   window.addEventListener("pointerdown", unlock, { once: true, capture: true });
   window.addEventListener("keydown", unlock, { once: true, capture: true });
-  console.log(`${MODULE_ID} | ready — force always-scroll + loud unfocused ping`);
+  console.log(`${MODULE_ID} | ready — unfocused scroll/ping only`);
 });
 
 Hooks.on("createChatMessage", onChatMessage);

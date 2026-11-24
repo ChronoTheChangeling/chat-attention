@@ -2,8 +2,8 @@
 
 Standalone Foundry VTT module for text RP:
 
-1. **Always** force-scrolls chat to the newest message — including while Foundry is focused and you had scrolled up
-2. Plays a louder attention ping when a message arrives while Foundry is **unfocused**
+1. While Foundry is **unfocused**: scrolls chat to new messages and plays a loud ping
+2. While Foundry is **focused**: does **not** force-scroll — if you scroll up to read, new messages won’t yank you back down
 
 Compatible with Foundry **12–14**.
 
@@ -21,7 +21,7 @@ Enable **Chat Attention** for the world and reload.
 
 | Setting | Default | Meaning |
 | --- | --- | --- |
-| Always scroll to newest | on | Jump to bottom on every new message |
+| Scroll to newest when unfocused | on | Jump to bottom only when Foundry isn’t focused |
 | Ping when unfocused | on | Loud ping when a message arrives and Foundry isn’t focused |
 | Ping for my own messages | off | Also ping for messages you send |
 | Ping volume | 0.75 | 0–1 |
